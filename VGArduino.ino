@@ -128,7 +128,7 @@ ISR(TIMER2_OVF_vect){
 
 void drawLine(){
   register byte* data = &(lineData[(dLine++)>>4][0]);
-  delayMicroseconds(1);
+  //delayMicroseconds(1);
   while(TCNT2 < HORIZ_DRAW_END) PORTD = *data++;
   PORTD = BLNK;
   //return data - &(lineData[(dLine - 1)>>4][0]);
