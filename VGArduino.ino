@@ -2,7 +2,7 @@
 VGArduino - VGA video card on an Arduino Uno.
 Inspired by Ben Eater's VGA card on breadboards.
 Very loosely based on Nick Gammon's work at http://www.gammon.com.au/forum/?id=11608.
-Resolution: 44x30
+Resolution: 40x30
 Pinouts:
 - D0-D1: Serial
 - D2: Unused
@@ -47,9 +47,9 @@ Front porch length: 16
 We don't have enough speed for this tho...
 */
 
-#define HORIZ_PIXELS 44 // it's 44x30 so...
+#define HORIZ_PIXELS 40 // it's 40x30 so...
 #define HORIZ_DRAW 8 // start draw @ (4us sync + 2us bp)/0.5us timerspeed
-#define HORIZ_DRAW_END 53
+#define HORIZ_DRAW_END 54
 enum modes {
   BLNK = 0b00000000, // nothing
   SYNC = 0b00010000, // vsync pin
@@ -58,7 +58,7 @@ enum modes {
 
 //framebuffer
 #define FRAMEBUFFER_INIT_MASK 0b11100000
-byte lineData[30][44];
+byte lineData[30][40];
 
 //macros for ease of use
 #define wait_line(line) while(vLine > line)
@@ -81,8 +81,7 @@ void setup() {
   cli();
   //randomSeed(analogRead(0)); // init random
   // configure all of the pins
-  DDRD |= 0b11111010; // set pins D2-D7 to output (not setting serial pins for reasons)
-  PORTB |= bit(0); // set PB0 to pullup
+  DDRD |= 0b11111000; // set pins D2-D7 to output (not setting serial pins for reasons)
   
   TIMSK0 = 0;  // no interrupts on Timer 0
   OCR0A = 0;   // and turn it off
@@ -99,8 +98,8 @@ void setup() {
 
   set_sleep_mode(SLEEP_MODE_IDLE);
   
+  user_init(); 
   sei();
-  user_init();
   enableDraw = 0xFF;
 }
 
@@ -128,18 +127,28 @@ ISR(TIMER2_OVF_vect){
 }
 
 void drawLine(){
-  register byte idx = dLine>>4;
-  register byte* data = &(lineData[idx][0]);
-  while(TCNT2 < 8);
+  register byte* data = &(lineData[(dLine++)>>4][0]);
+  delayMicroseconds(1);
   while(TCNT2 < HORIZ_DRAW_END) PORTD = *data++;
   PORTD = BLNK;
-  dLine++;
+  //return data - &(lineData[(dLine - 1)>>4][0]);
 }
 
 void loop() {
   sleep_mode(); // make sure to sleep so we start up predictably
   if(vLine == VERTICAL_FP) update();
   if(vLine == 0) draw();
+}
+
+void updateFramebufferSolid(byte val){
+  enableDraw = 0x00;
+  wait_line(0);
+  for(byte i = 0; i < 30; i++){
+    for(byte j = 0; j < 40; j++){
+      lineData[i][j] = val & FRAMEBUFFER_INIT_MASK;
+    }
+  }
+  enableDraw = 0xFF;
 }
 
 void updateFramebufferPixel(byte Ypos, byte Xpos, byte val){
@@ -152,60 +161,69 @@ void updateFramebufferLine(byte Ypos, byte* updateBuffer){
   wait_line(0);
   enableDraw = 0x00; // disable drawing just in case
   byte i = 0;
-  while(i < 44)
+  while(i < 40)
     lineData[Ypos][i++] = *updateBuffer++;
   enableDraw = 0xFF;
 }
 
 // User program space
 
-byte fbUpdateBuffer[44];
-byte fbUpdateBufferPos = 0;
-byte verticalLineUpdatePos = 0;
-byte tmp;
+byte brushPosX = 0;
+byte brushPosY = 0;
+
+byte oldBrushPosX = 0;
+byte oldBrushPosY = 0;
+
+byte inputBuffer = 0b00000;
+byte oldInputBuffer = 0b00000;
+
+// define directional buttons
+#define UP 3
+#define DOWN 2
+#define LEFT 1
+#define RIGHT 0
+#define RESET 4
 
 void user_init(){
   // runs in void setup(), helper function
-  DDRB |= bit(LED);
-  PORTB &= 0xFF ^ bit(LED); // set LED off for startup
-
-  Serial.begin(115200);
-  
-  for(byte i = 0; i < 30; i++){
-    for(byte j = 0; j < 44; j++){
-      lineData[i][j] = random()&FRAMEBUFFER_INIT_MASK;
-    }
-  }
-
-  while(!Serial.availableForWrite());
-  Serial.println("Startup");
-  delay(3000);
-
-  while(!Serial.available());
-  while(Serial.available()) Serial.read(); // clear serial buffer
-  
-  Serial.println("Running");
-  
-  PORTB |= bit(LED); // set LED on
+  DDRB = 0b11100000;
+  PORTB = 0b00011111; // set PB0-PB4 to pullup
+  DDRC = 0b000000;
+  PORTC = 0b000001; // set PC0 to pullup
+  updateFramebufferSolid(0x00);
+  /*Serial.begin(115200);
+  int test = 0;
+  while(TCNT2 > 0);
+  test = drawLine();
+  char print_data[256];
+  snprintf(&(print_data[0]), 128, "%d", test);
+  Serial.println(print_data);
+  while(true);*/
 }
 
 void update(){
   // use update() for code to handle input
   // this runs in vertical front porch so it should be reasonably fast
   // DO NOT CLEAR INTERRUPTS
-  if(fbUpdateBufferPos > 43){
-    updateFramebufferLine(verticalLineUpdatePos++, &(fbUpdateBuffer[0]));
-    fbUpdateBufferPos = 0;
-    verticalLineUpdatePos %= 30;
-  }
+  updateFramebufferPixel(oldBrushPosY, oldBrushPosX, PINC & 0b000001 ? 0xFF : 0x00);
+  updateFramebufferPixel(brushPosY, brushPosX, 0b01000000);
 }
 
 void draw(){
   // use draw() for code that refreshes the framebuffer or other code like that
   // this runs in vertical back porch so it has a bit more time to run
   // DO NOT CLEAR INTERRUPTS
-  while(is_draw_safe() && Serial.available() && fbUpdateBufferPos < 44){
-    tmp = (byte)Serial.read();
-    fbUpdateBuffer[fbUpdateBufferPos++] = tmp << 5;
+  inputBuffer = PINB^0b00011111;
+  if(inputBuffer != oldInputBuffer){
+    oldBrushPosX = brushPosX;
+    oldBrushPosY = brushPosY;
+    if(inputBuffer & bit(UP)) --brushPosY;
+    if(inputBuffer & bit(DOWN)) ++brushPosY;
+    if(inputBuffer & bit(LEFT)) --brushPosX;
+    if(inputBuffer & bit(RIGHT)) ++brushPosX;
+    if(inputBuffer & bit(RESET)) updateFramebufferSolid(0x00);
   }
+  if(brushPosX > 39) brushPosX = 39;
+  if(brushPosY > 29) brushPosY = 29;
+  oldInputBuffer = inputBuffer;
 }
