@@ -187,7 +187,15 @@ void updateFramebufferBlock(byte Ystart, byte Yend, byte Xstart, byte Xend, byte
 #define LEFT 1
 #define RIGHT 0
 
+// define colors used
+#define PLAYER 0b01000000
+#define APPLE 0b10000000
+
 byte currentDirection = 0b00;
+byte updateDirection = 0b00; // this exists because you can't turn 180 degrees
+
+#define DELAY_STAGES 15
+byte currentStage = 0x0;
 
 struct vec2d {
   byte x;
@@ -196,28 +204,31 @@ struct vec2d {
 
 struct{
   vec2d head;
-  struct : vec2d{
-    byte tailOffset = 1;
-  } tail;
+  vec2d tail;
+  unsigned int tailOffset = 4;
   bool dead = false;
 } player;
 
 struct{
   byte x;
   byte y;
+  bool isGathered = true;
 } apple;
 
 #define DIRECTION_COUNT 1600
 
 byte directionsMoved[400];
-unsigned int dirMovedIndex = 1;
+unsigned int dirMovedIndex = 0;
 
 byte getDirection(unsigned int offset){
-  return directionsMoved[offset/4] & (0b11 << offset % 4);
+  byte temp = (offset % 4) * 2;
+  return (directionsMoved[offset/4] & (0b11 << temp)) >> temp;
 }
 
 void setDirection(unsigned int offset, byte val){
-  directionsMoved[offset/4] &= ((val^0b11) << offset % 4) ^ 0xFF;
+  byte temp = (offset % 4) * 2;
+  directionsMoved[offset/4] &= (0b11 << temp)^0xFF;
+  directionsMoved[offset/4] |= val << temp;
 }
 
 void decodeDirection(struct vec2d* val, byte direction){
@@ -233,10 +244,13 @@ void user_init(){
   // runs in void setup(), helper function
   DDRB &= 0b11110000;
   PORTB |= 0b00001111; // set PB0-PB3 to pullup
+  srand(analogRead(0)); // init rand
   updateFramebufferSolid(0x00);
   for(auto& i : directionsMoved){
     i = 0;
   }
+  player.head = {19, 14};
+  player.tail = {15, 14};
 }
 
 void update(){
@@ -244,10 +258,10 @@ void update(){
   // this runs in vertical front porch so it should be reasonably fast
   // DO NOT CLEAR INTERRUPTS
   inputBuffer = PINB^0b00001111;
-  if(inputBuffer & bit(UP)) currentDirection = UP;
-  if(inputBuffer & bit(DOWN)) currentDirection = DOWN;
-  if(inputBuffer & bit(LEFT)) currentDirection = LEFT;
-  if(inputBuffer & bit(RIGHT)) currentDirection = RIGHT;
+  if(inputBuffer & bit(UP)) updateDirection = UP;
+  if(inputBuffer & bit(DOWN)) updateDirection = DOWN;
+  if(inputBuffer & bit(LEFT)) updateDirection = LEFT;
+  if(inputBuffer & bit(RIGHT)) updateDirection = RIGHT;
 }
 
 void draw(){
@@ -257,12 +271,34 @@ void draw(){
   if(player.dead){
     updateFramebufferSolid(0b10000000);
   }else{
-    if(++dirMovedIndex >= DIRECTION_COUNT) dirMovedIndex = 0;
-    decodeDirection(&player.head, currentDirection);
-    if(player.head.x > 39 || player.head.y > 29) player.dead = true;
-    setDirection(dirMovedIndex, currentDirection);
-    decodeDirection(&player.tail, getDirection((dirMovedIndex - player.tail.tailOffset < 0) ? dirMovedIndex - player.tail.tailOffset + DIRECTION_COUNT : dirMovedIndex - player.tail.tailOffset));
-    updateFramebufferPixel(player.head.y, player.head.x, 0b01000000);
-    updateFramebufferPixel(player.tail.y, player.tail.x, 0x00);
+    // make game run at a usable speed
+    if(++currentStage == DELAY_STAGES){
+      currentStage = 0;
+      // make sure that player cannot backtrack (ie, move down while moving up)
+      if(updateDirection >>1 != currentDirection >>1) currentDirection = updateDirection;
+      if(true) dirMovedIndex = (++dirMovedIndex) % DIRECTION_COUNT;
+      // update player head, kill if hit edge of screen
+      decodeDirection(&player.head, currentDirection);
+      if(player.head.x > 39 || player.head.y > 29) player.dead = true;
+      setDirection((dirMovedIndex + player.tailOffset) % DIRECTION_COUNT, currentDirection);
+      // erase bits
+      decodeDirection(&player.tail, getDirection(dirMovedIndex));
+      // self collision
+      if(lineData[player.head.y][player.head.x] == PLAYER) player.dead = true;
+      if(lineData[player.head.y][player.head.x] == APPLE){
+        apple.isGathered = true;
+        ++player.tailOffset;
+        decodeDirection(&player.tail, getDirection(dirMovedIndex--)^0b01);
+      }
+      // draw everything
+      if(!apple.isGathered) updateFramebufferPixel(apple.y, apple.x, APPLE);
+      updateFramebufferPixel(player.head.y, player.head.x, PLAYER);
+      updateFramebufferPixel(player.tail.y, player.tail.x, 0x00);
+    }
+    if(apple.isGathered){
+      apple.x = rand() % 40;
+      apple.y = rand() % 30;
+      if(lineData[apple.y][apple.x] != PLAYER) apple.isGathered = false;
+    }
   }
 }
