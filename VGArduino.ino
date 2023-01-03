@@ -269,7 +269,7 @@ void draw(){
   // this runs in vertical back porch so it has a bit more time to run
   // DO NOT CLEAR INTERRUPTS
   if(player.dead){
-    updateFramebufferSolid(0b10000000);
+    return;
   }else{
     // make game run at a usable speed
     if(++currentStage == DELAY_STAGES){
@@ -292,8 +292,10 @@ void draw(){
       }
       // draw everything
       if(!apple.isGathered) updateFramebufferPixel(apple.y, apple.x, APPLE);
-      updateFramebufferPixel(player.head.y, player.head.x, PLAYER);
-      updateFramebufferPixel(player.tail.y, player.tail.x, 0x00);
+      if(!player.dead){
+        updateFramebufferPixel(player.head.y, player.head.x, PLAYER);
+        updateFramebufferPixel(player.tail.y, player.tail.x, 0x00);
+      }
     }
     if(apple.isGathered){
       apple.x = rand() % 40;
