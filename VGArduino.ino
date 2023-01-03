@@ -186,6 +186,7 @@ struct{
   struct : vec2d{
     byte tailOffset = 1;
   } tail;
+  bool dead = false;
 } player;
 
 struct{
@@ -206,11 +207,11 @@ void setDirection(unsigned int offset, byte val){
   directionsMoved[offset/4] &= ((val^0b11) << offset % 4) ^ 0xFF;
 }
 
-void decodeDirection(byte* x, byte* y, byte direction){
-  if(direction == LEFT) --(*x);
-  if(direction == RIGHT) ++(*x);
-  if(direction == UP) --(*y);
-  if(direction == DOWN) ++(*y);
+void decodeDirection(struct vec2d* val, byte direction){
+  if(direction == LEFT) --val->x;
+  if(direction == RIGHT) ++val->x;
+  if(direction == UP) --val->y;
+  if(direction == DOWN) ++val->y;
 }
 
 byte inputBuffer = 0b0000;
@@ -219,8 +220,6 @@ void user_init(){
   // runs in void setup(), helper function
   DDRB &= 0b11110000;
   PORTB |= 0b00001111; // set PB0-PB3 to pullup
-  DDRC = 0b000000;
-  PORTC = 0b000001; // set PC0 to pullup
   updateFramebufferSolid(0x00);
   for(auto& i : directionsMoved){
     i = 0;
@@ -242,10 +241,15 @@ void draw(){
   // use draw() for code that refreshes the framebuffer or other code like that
   // this runs in vertical back porch so it has a bit more time to run
   // DO NOT CLEAR INTERRUPTS
-  if(currentDirection == LEFT) --player.head.x;
-  if(currentDirection == RIGHT) ++player.head.x;
-  if(currentDirection == UP) --player.head.y;
-  if(currentDirection == DOWN) ++player.head.y;
-  setDirection(dirMovedIndex++, currentDirection);
-  
+  if(player.dead){
+    updateFramebufferSolid(0b10000000);
+  }else{
+    if(++dirMovedIndex >= DIRECTION_COUNT) dirMovedIndex = 0;
+    decodeDirection(&player.head, currentDirection);
+    if(player.head.x > 39 || player.head.y > 29) player.dead = true;
+    setDirection(dirMovedIndex, currentDirection);
+    decodeDirection(&player.tail, getDirection((dirMovedIndex - player.tail.tailOffset < 0) ? dirMovedIndex - player.tail.tailOffset + DIRECTION_COUNT : dirMovedIndex - player.tail.tailOffset));
+    updateFramebufferPixel(player.head.y, player.head.x, 0b01000000);
+    updateFramebufferPixel(player.tail.y, player.tail.x, 0x00);
+  }
 }
