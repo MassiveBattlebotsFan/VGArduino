@@ -168,62 +168,84 @@ void updateFramebufferLine(byte Ypos, byte* updateBuffer){
 
 // User program space
 
-byte brushPosX = 0;
-byte brushPosY = 0;
-
-byte oldBrushPosX = 0;
-byte oldBrushPosY = 0;
-
-byte inputBuffer = 0b00000;
-byte oldInputBuffer = 0b00000;
-
 // define directional buttons
 #define UP 3
 #define DOWN 2
 #define LEFT 1
 #define RIGHT 0
-#define RESET 4
+
+byte currentDirection = 0b00;
+
+struct vec2d {
+  byte x;
+  byte y;
+};
+
+struct{
+  vec2d head;
+  struct : vec2d{
+    byte tailOffset = 1;
+  } tail;
+} player;
+
+struct{
+  byte x;
+  byte y;
+} apple;
+
+#define DIRECTION_COUNT 1600
+
+byte directionsMoved[400];
+unsigned int dirMovedIndex = 1;
+
+byte getDirection(unsigned int offset){
+  return directionsMoved[offset/4] & (0b11 << offset % 4);
+}
+
+void setDirection(unsigned int offset, byte val){
+  directionsMoved[offset/4] &= ((val^0b11) << offset % 4) ^ 0xFF;
+}
+
+void decodeDirection(byte* x, byte* y, byte direction){
+  if(direction == LEFT) --(*x);
+  if(direction == RIGHT) ++(*x);
+  if(direction == UP) --(*y);
+  if(direction == DOWN) ++(*y);
+}
+
+byte inputBuffer = 0b0000;
 
 void user_init(){
   // runs in void setup(), helper function
-  DDRB = 0b11100000;
-  PORTB = 0b00011111; // set PB0-PB4 to pullup
+  DDRB &= 0b11110000;
+  PORTB |= 0b00001111; // set PB0-PB3 to pullup
   DDRC = 0b000000;
   PORTC = 0b000001; // set PC0 to pullup
   updateFramebufferSolid(0x00);
-  /*Serial.begin(115200);
-  int test = 0;
-  while(TCNT2 > 0);
-  test = drawLine();
-  char print_data[256];
-  snprintf(&(print_data[0]), 128, "%d", test);
-  Serial.println(print_data);
-  while(true);*/
+  for(auto& i : directionsMoved){
+    i = 0;
+  }
 }
 
 void update(){
   // use update() for code to handle input
   // this runs in vertical front porch so it should be reasonably fast
   // DO NOT CLEAR INTERRUPTS
-  updateFramebufferPixel(oldBrushPosY, oldBrushPosX, PINC & 0b000001 ? 0xFF : 0x00);
-  updateFramebufferPixel(brushPosY, brushPosX, 0b01000000);
+  inputBuffer = PINB^0b00001111;
+  if(inputBuffer & bit(UP)) currentDirection = UP;
+  if(inputBuffer & bit(DOWN)) currentDirection = DOWN;
+  if(inputBuffer & bit(LEFT)) currentDirection = LEFT;
+  if(inputBuffer & bit(RIGHT)) currentDirection = RIGHT;
 }
 
 void draw(){
   // use draw() for code that refreshes the framebuffer or other code like that
   // this runs in vertical back porch so it has a bit more time to run
   // DO NOT CLEAR INTERRUPTS
-  inputBuffer = PINB^0b00011111;
-  if(inputBuffer != oldInputBuffer){
-    oldBrushPosX = brushPosX;
-    oldBrushPosY = brushPosY;
-    if(inputBuffer & bit(UP)) --brushPosY;
-    if(inputBuffer & bit(DOWN)) ++brushPosY;
-    if(inputBuffer & bit(LEFT)) --brushPosX;
-    if(inputBuffer & bit(RIGHT)) ++brushPosX;
-    if(inputBuffer & bit(RESET)) updateFramebufferSolid(0x00);
-  }
-  if(brushPosX > 39) brushPosX = 39;
-  if(brushPosY > 29) brushPosY = 29;
-  oldInputBuffer = inputBuffer;
+  if(currentDirection == LEFT) --player.head.x;
+  if(currentDirection == RIGHT) ++player.head.x;
+  if(currentDirection == UP) --player.head.y;
+  if(currentDirection == DOWN) ++player.head.y;
+  setDirection(dirMovedIndex++, currentDirection);
+  
 }
