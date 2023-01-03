@@ -9,8 +9,6 @@ Pinouts:
 - D3: HSYNC
 - D4: VSYNC
 - D5-D7: Color outputs
-
-This is running an example serial program.
 **/
 
 #include <avr/pgmspace.h>
@@ -166,64 +164,33 @@ void updateFramebufferLine(byte Ypos, byte* updateBuffer){
   enableDraw = 0xFF;
 }
 
+void updateFramebufferBlock(byte Ystart, byte Yend, byte Xstart, byte Xend, byte val){
+  wait_line(0);
+  enableDraw = 0x00;
+  if(Yend > 29) Yend = 29;
+  if(Xend > HORIZ_PIXELS) Xend = HORIZ_PIXELS;
+  while(Ystart < Yend){
+    for(byte i = Xstart; i < Xend; ++i){
+      lineData[Ystart][i] = val;
+    }
+    ++Ystart;
+  }
+}
+
 // User program space
-
-byte brushPosX = 0;
-byte brushPosY = 0;
-
-byte oldBrushPosX = 0;
-byte oldBrushPosY = 0;
-
-byte inputBuffer = 0b00000;
-byte oldInputBuffer = 0b00000;
-
-// define directional buttons
-#define UP 3
-#define DOWN 2
-#define LEFT 1
-#define RIGHT 0
-#define RESET 4
 
 void user_init(){
   // runs in void setup(), helper function
-  DDRB = 0b11100000;
-  PORTB = 0b00011111; // set PB0-PB4 to pullup
-  DDRC = 0b000000;
-  PORTC = 0b000001; // set PC0 to pullup
-  updateFramebufferSolid(0x00);
-  /*Serial.begin(115200);
-  int test = 0;
-  while(TCNT2 > 0);
-  test = drawLine();
-  char print_data[256];
-  snprintf(&(print_data[0]), 128, "%d", test);
-  Serial.println(print_data);
-  while(true);*/
 }
 
 void update(){
   // use update() for code to handle input
   // this runs in vertical front porch so it should be reasonably fast
   // DO NOT CLEAR INTERRUPTS
-  updateFramebufferPixel(oldBrushPosY, oldBrushPosX, PINC & 0b000001 ? 0xFF : 0x00);
-  updateFramebufferPixel(brushPosY, brushPosX, 0b01000000);
 }
 
 void draw(){
   // use draw() for code that refreshes the framebuffer or other code like that
   // this runs in vertical back porch so it has a bit more time to run
   // DO NOT CLEAR INTERRUPTS
-  inputBuffer = PINB^0b00011111;
-  if(inputBuffer != oldInputBuffer){
-    oldBrushPosX = brushPosX;
-    oldBrushPosY = brushPosY;
-    if(inputBuffer & bit(UP)) --brushPosY;
-    if(inputBuffer & bit(DOWN)) ++brushPosY;
-    if(inputBuffer & bit(LEFT)) --brushPosX;
-    if(inputBuffer & bit(RIGHT)) ++brushPosX;
-    if(inputBuffer & bit(RESET)) updateFramebufferSolid(0x00);
-  }
-  if(brushPosX > 39) brushPosX = 39;
-  if(brushPosY > 29) brushPosY = 29;
-  oldInputBuffer = inputBuffer;
 }
