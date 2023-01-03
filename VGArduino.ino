@@ -10,7 +10,7 @@ Pinouts:
 - D4: VSYNC
 - D5-D7: Color outputs
 
-This is running an example serial program.
+This is running Snake.
 **/
 
 #include <avr/pgmspace.h>
@@ -164,6 +164,19 @@ void updateFramebufferLine(byte Ypos, byte* updateBuffer){
   while(i < 40)
     lineData[Ypos][i++] = *updateBuffer++;
   enableDraw = 0xFF;
+}
+
+void updateFramebufferBlock(byte Ystart, byte Yend, byte Xstart, byte Xend, byte val){
+  wait_line(0);
+  enableDraw = 0x00;
+  if(Yend > 29) Yend = 29;
+  if(Xend > HORIZ_PIXELS) Xend = HORIZ_PIXELS;
+  while(Ystart < Yend){
+    for(byte i = Xstart; i < Xend; ++i){
+      lineData[Ystart][i] = val;
+    }
+    ++Ystart;
+  }
 }
 
 // User program space
